@@ -54,9 +54,11 @@ namespace Vulkan {
 
         bool HasLinearTilingFeatures(Kernel &kernel) const;
 
-        static int32_t
+        int32_t
         BindImageMemory(Kernel &kernel, vk::UniqueDeviceMemory &memory, vk::Image image,
                         vk::MemoryPropertyFlags properties);
+
+        vk::SamplerYcbcrConversionInfo CreateSamplerYcbcrConversion(Kernel &kernel) const;
 
         void CopyImage(Kernel &kernel);
     };

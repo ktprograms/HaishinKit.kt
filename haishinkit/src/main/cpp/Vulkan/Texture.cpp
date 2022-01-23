@@ -12,8 +12,10 @@ namespace Vulkan {
                 return vk::Format::eR8G8B8A8Unorm;
             case WINDOW_FORMAT_RGB_565:
                 return vk::Format::eR5G6B5UnormPack16;
+            case 17:
+                return vk::Format::eG8B8R82Plane420Unorm;
             case 35: // ImageFormat.YUV_420_888
-                return vk::Format::eR8G8B8A8Unorm;
+                return vk::Format::eG8B8R82Plane420Unorm;
             default:
                 return vk::Format::eR8G8B8A8Unorm;
         }
@@ -103,12 +105,16 @@ namespace Vulkan {
         switch (mode) {
             case Linear: {
                 LOGI("%s", "This device has a linear tiling feature.");
+                auto aspectMask = vk::ImageAspectFlagBits::eColor;
+                if (image.IsMultiPlanar()) {
+                    aspectMask = vk::ImageAspectFlagBits::ePlane0;
+                }
                 rowPitch = kernel.device->getImageSubresourceLayout(
                         image.image.get(),
                         vk::ImageSubresource()
                                 .setMipLevel(0)
                                 .setArrayLayer(0)
-                                .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                .setAspectMask(aspectMask)
                 ).rowPitch;
                 auto commandBuffer = kernel.commandBuffer.Allocate(kernel);
                 commandBuffer.begin(vk::CommandBufferBeginInfo());
@@ -158,21 +164,26 @@ namespace Vulkan {
                 break;
         }
 
-        sampler = kernel.device->createSamplerUnique(
-                vk::SamplerCreateInfo()
-                        .setMagFilter(filter)
-                        .setMinFilter(filter)
-                        .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-                        .setAddressModeV(vk::SamplerAddressMode::eRepeat)
-                        .setAddressModeW(vk::SamplerAddressMode::eRepeat)
-                        .setMipLodBias(0.0f)
-                        .setMaxAnisotropy(1)
-                        .setCompareOp(vk::CompareOp::eNever)
-                        .setMinLod(0.0f)
-                        .setMaxLod(0.0f)
-                        .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-                        .setUnnormalizedCoordinates(false)
-        );
+        vk::SamplerCreateInfo samplerCreateInfo = vk::SamplerCreateInfo()
+                .setMagFilter(filter)
+                .setMinFilter(filter)
+                .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+                .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+                .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+                .setMipLodBias(0.0f)
+                .setMaxAnisotropy(1)
+                .setCompareOp(vk::CompareOp::eNever)
+                .setMinLod(0.0f)
+                .setMaxLod(0.0f)
+                .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+                .setUnnormalizedCoordinates(false);
+
+        if (image.IsMultiPlanar()) {
+            const auto info = CreateSamplerYcbcrConversion(kernel);
+            samplerCreateInfo.setPNext(&info);
+        }
+
+        sampler = kernel.device->createSamplerUnique(samplerCreateInfo);
 
         imageView = kernel.CreateImageView(image.image.get(), image.format);
     }
@@ -227,18 +238,63 @@ namespace Vulkan {
     int32_t
     Texture::BindImageMemory(Kernel &kernel, vk::UniqueDeviceMemory &memory, vk::Image image,
                              vk::MemoryPropertyFlags properties) {
-        const auto requirements = kernel.device->getImageMemoryRequirements(image);
-        memory = kernel.device->allocateMemoryUnique(
-                vk::MemoryAllocateInfo()
-                        .setAllocationSize(requirements.size)
-                        .setMemoryTypeIndex(
-                                kernel.FindMemoryType(
-                                        requirements.memoryTypeBits,
-                                        properties
-                                ))
-        );
-        kernel.device->bindImageMemory(image, memory.get(), 0);
-        return requirements.size;
+        if (this->image.IsMultiPlanar()) {
+            vk::DeviceSize size = 0;
+            uint32_t memoryTypeBits = 0;
+            std::vector<vk::ImageAspectFlagBits> imageAspects = {
+                    vk::ImageAspectFlagBits::ePlane0,
+                    vk::ImageAspectFlagBits::ePlane1
+            };
+            std::vector<vk::BindImageMemoryInfo> bindImageMemoryInfos;
+
+            for (const auto imageAspect : imageAspects) {
+                const auto imageMemoryRequirements2 = kernel.device->getImageMemoryRequirements2(
+                        vk::ImageMemoryRequirementsInfo2()
+                                .setImage(image)
+                                .setPNext(&vk::ImagePlaneMemoryRequirementsInfo().setPlaneAspect(
+                                        imageAspect)));
+                bindImageMemoryInfos.push_back(
+                        vk::BindImageMemoryInfo()
+                                .setPNext(
+                                        &vk::BindImagePlaneMemoryInfo().setPlaneAspect(
+                                                imageAspect))
+                                .setImage(image)
+                                .setMemoryOffset(size)
+                );
+                size += imageMemoryRequirements2.memoryRequirements.size;
+                memoryTypeBits |= imageMemoryRequirements2.memoryRequirements.memoryTypeBits;
+            }
+
+            memory = kernel.device->allocateMemoryUnique(
+                    vk::MemoryAllocateInfo()
+                            .setAllocationSize(size)
+                            .setMemoryTypeIndex(
+                                    kernel.FindMemoryType(
+                                            memoryTypeBits,
+                                            properties
+                                    ))
+            );
+
+            for (auto &bindImageMemoryInfo: bindImageMemoryInfos) {
+                bindImageMemoryInfo.setMemory(memory.get());
+            }
+
+            kernel.device->bindImageMemory2(bindImageMemoryInfos);
+            return size;
+        } else {
+            const auto requirements = kernel.device->getImageMemoryRequirements(image);
+            memory = kernel.device->allocateMemoryUnique(
+                    vk::MemoryAllocateInfo()
+                            .setAllocationSize(requirements.size)
+                            .setMemoryTypeIndex(
+                                    kernel.FindMemoryType(
+                                            requirements.memoryTypeBits,
+                                            properties
+                                    ))
+            );
+            kernel.device->bindImageMemory(image, memory.get(), 0);
+            return requirements.size;
+        }
     }
 
     void Texture::CopyImage(Kernel &kernel) {
@@ -280,5 +336,25 @@ namespace Vulkan {
                 vk::PipelineStageFlagBits::eFragmentShader);
         commandBuffer.end();
         kernel.Submit(commandBuffer);
+    }
+
+    vk::SamplerYcbcrConversionInfo Texture::CreateSamplerYcbcrConversion(Kernel &kernel) const {
+        return vk::SamplerYcbcrConversionInfo()
+                .setConversion(kernel.device->createSamplerYcbcrConversion(
+                        vk::SamplerYcbcrConversionCreateInfo()
+                                .setFormat(image.format)
+                                .setYcbcrModel(
+                                        vk::SamplerYcbcrModelConversion::eYcbcr709)
+                                .setYcbcrRange(
+                                        vk::SamplerYcbcrRange::eItuFull)
+                                .setComponents(vk::ComponentMapping()
+                                                       .setR(vk::ComponentSwizzle::eIdentity)
+                                                       .setG(vk::ComponentSwizzle::eIdentity)
+                                                       .setB(vk::ComponentSwizzle::eIdentity)
+                                                       .setA(vk::ComponentSwizzle::eIdentity)
+                                )
+                                .setChromaFilter(vk::Filter::eLinear)
+                                .setForceExplicitReconstruction(false)
+                ));
     }
 }

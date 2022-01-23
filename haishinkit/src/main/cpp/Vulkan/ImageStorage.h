@@ -26,6 +26,8 @@ namespace Vulkan {
                 vk::PipelineStageFlagBits dstStageMask);
 
         vk::ImageCreateInfo CreateImageCreateInfo() const;
+
+        bool IsMultiPlanar() const;
     };
 }
 

@@ -32,8 +32,17 @@ namespace Vulkan {
         layout = newImageLayout;
     }
 
+    bool ImageStorage::IsMultiPlanar() const {
+        switch (format) {
+            case vk::Format::eG8B8R82Plane420Unorm:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     vk::ImageCreateInfo ImageStorage::CreateImageCreateInfo() const {
-        return vk::ImageCreateInfo()
+        auto info = vk::ImageCreateInfo()
                 .setImageType(vk::ImageType::e2D)
                 .setExtent(vk::Extent3D(extent.width, extent.height, 1))
                 .setMipLevels(1)
@@ -42,5 +51,9 @@ namespace Vulkan {
                 .setInitialLayout(layout)
                 .setSharingMode(vk::SharingMode::eExclusive)
                 .setSamples(vk::SampleCountFlagBits::e1);
+        if (IsMultiPlanar()) {
+            info.setFlags(vk::ImageCreateFlagBits::eDisjoint);
+        }
+        return info;
     }
 }
