@@ -30,20 +30,13 @@ ColorSpace::convert(void *buffer0, void *buffer1, void *buffer2, int32_t yStride
             memcpy(memory, buffer0, size);
             break;
         case 35: { // ImageFormat.YUV_420_888
-            auto *yPixel = static_cast<uint8_t *>(buffer0);
-            auto *uPixel = static_cast<uint8_t *>(buffer1);
-            auto *vPixel = static_cast<uint8_t *>(buffer2);
-            auto *out = static_cast<uint32_t *>(memory);
             for (int32_t y = 0; y < extent.height; ++y) {
-                const uint8_t *pY = yPixel + yStride * y;
-                int32_t uvRowStart = uvStride * (y >> 1);
-                const uint8_t *pU = uPixel + uvRowStart;
-                const uint8_t *pV = vPixel + uvRowStart;
-                for (int32_t x = 0; x < extent.width; ++x) {
-                    const int32_t uvOffset = (x >> 1) * uvPixelStride;
-                    out[x] = YuvToRgb(pY[x], pV[uvOffset], pU[uvOffset]);
-                }
-                out += extent.width;
+                auto *row = reinterpret_cast<unsigned char *>((char *) memory +
+                                                              layout.rowPitch *
+                                                              y);
+                auto *src = reinterpret_cast<unsigned char *>((char *) buffer0 +
+                                                              yStride * y);
+                memcpy(row, src, (size_t) (4 * extent.width));
             }
             break;
         }
@@ -62,29 +55,17 @@ vk::Format ColorSpace::GetFormat() const {
         case WINDOW_FORMAT_RGB_565:
             return vk::Format::eR5G6B5UnormPack16;
         case 35: // ImageFormat.YUV_420_888
-            return vk::Format::eR8G8B8A8Unorm;
+            return vk::Format::eG8B8R82Plane420Unorm;
         default:
             return vk::Format::eR8G8B8A8Unorm;
     }
 }
 
-uint32_t ColorSpace::YuvToRgb(int y, int u, int v) {
-    y -= 16;
-    u -= 128;
-    v -= 128;
-    if (y < 0) y = 0;
-
-    int r = 1192 * y + 1634 * v;
-    int g = 1192 * y - 833 * v - 400 * u;
-    int b = 1192 * y + 2066 * u;
-
-    r = std::min(262143, std::max(0, r));
-    g = std::min(262143, std::max(0, g));
-    b = std::min(262143, std::max(0, b));
-
-    r = (r >> 10) & 0xff;
-    g = (g >> 10) & 0xff;
-    b = (b >> 10) & 0xff;
-
-    return 0xff000000 | (r << 16) | (g << 8) | b;
+int8_t ColorSpace::GetPlaneCount() const {
+    switch (format) {
+        case 35:
+            return 3;
+        default:
+            return 1;
+    }
 }

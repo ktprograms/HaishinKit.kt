@@ -47,6 +47,8 @@ namespace Graphics {
 
         vk::DescriptorImageInfo CreateDescriptorImageInfo();
 
+        vk::SamplerYcbcrConversionInfo CreateSamplerYcbcrConversion(Kernel &kernel) const;
+
     private:
         Mode mode = Mode::Linear;
         ImageStorage image;

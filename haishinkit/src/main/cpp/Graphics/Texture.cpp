@@ -204,21 +204,29 @@ void Texture::SetUp(Kernel &kernel) {
             break;
     }
 
-    sampler = kernel.device->createSamplerUnique(
-            vk::SamplerCreateInfo()
-                    .setMagFilter(filter)
-                    .setMinFilter(filter)
-                    .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-                    .setAddressModeV(vk::SamplerAddressMode::eRepeat)
-                    .setAddressModeW(vk::SamplerAddressMode::eRepeat)
-                    .setMipLodBias(0.0f)
-                    .setMaxAnisotropy(1)
-                    .setCompareOp(vk::CompareOp::eNever)
-                    .setMinLod(0.0f)
-                    .setMaxLod(0.0f)
-                    .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-                    .setUnnormalizedCoordinates(false)
-    );
+    auto samplerCreateInfo = vk::SamplerCreateInfo()
+            .setMagFilter(filter)
+            .setMinFilter(filter)
+            .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+            .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+            .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+            .setMipLodBias(0.0f)
+            .setMaxAnisotropy(1)
+            .setCompareOp(vk::CompareOp::eNever)
+            .setMinLod(0.0f)
+            .setMaxLod(0.0f)
+            .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+            .setUnnormalizedCoordinates(false);
+
+    if (1 < colorSpace->GetPlaneCount()) {
+        const auto info = CreateSamplerYcbcrConversion(kernel);
+        samplerCreateInfo
+                .setMinFilter(vk::Filter::eLinear)
+                .setMagFilter(vk::Filter::eLinear)
+                .setPNext(&info);
+    }
+
+    sampler = kernel.device->createSamplerUnique(samplerCreateInfo);
 
     imageView = kernel.CreateImageView(image.image.get(), image.format);
 }
@@ -305,4 +313,24 @@ void Texture::CopyImage(Kernel &kernel) {
             vk::PipelineStageFlagBits::eFragmentShader);
     commandBuffer.end();
     kernel.Submit(commandBuffer);
+}
+
+vk::SamplerYcbcrConversionInfo Texture::CreateSamplerYcbcrConversion(Kernel &kernel) const {
+    return vk::SamplerYcbcrConversionInfo()
+            .setConversion(kernel.device->createSamplerYcbcrConversion(
+                    vk::SamplerYcbcrConversionCreateInfo()
+                            .setFormat(image.format)
+                            .setYcbcrModel(
+                                    vk::SamplerYcbcrModelConversion::eYcbcr709)
+                            .setYcbcrRange(
+                                    vk::SamplerYcbcrRange::eItuFull)
+                            .setComponents(vk::ComponentMapping()
+                                                   .setR(vk::ComponentSwizzle::eIdentity)
+                                                   .setG(vk::ComponentSwizzle::eIdentity)
+                                                   .setB(vk::ComponentSwizzle::eIdentity)
+                                                   .setA(vk::ComponentSwizzle::eIdentity)
+                            )
+                            .setChromaFilter(vk::Filter::eLinear)
+                            .setForceExplicitReconstruction(false)
+            ));
 }

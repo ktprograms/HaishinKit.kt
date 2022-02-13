@@ -20,6 +20,8 @@ namespace Graphics {
 
         vk::Format GetFormat() const;
 
+        int8_t GetPlaneCount() const;
+
         bool
         convert(void *y, void *u, void *v, int32_t yStride, int32_t uvStride,
                 int32_t uvPixelStride) const;
