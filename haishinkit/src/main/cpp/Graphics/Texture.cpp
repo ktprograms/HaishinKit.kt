@@ -60,8 +60,10 @@ vk::Viewport Texture::GetViewport(const vk::Extent2D surface) const {
 
     auto newImageExtent = image.extent;
 
-    if (imageOrientation == LEFT || imageOrientation == RIGHT ||
-        imageOrientation == LEFT_MIRRORED || imageOrientation || RIGHT_MIRRORED) {
+    if (imageOrientation == LEFT ||
+        imageOrientation == RIGHT ||
+        imageOrientation == LEFT_MIRRORED ||
+        imageOrientation == RIGHT_MIRRORED) {
         newImageExtent = vk::Extent2D()
                 .setWidth(image.extent.height)
                 .setHeight(image.extent.width);
