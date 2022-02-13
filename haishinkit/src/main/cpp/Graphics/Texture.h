@@ -61,7 +61,7 @@ namespace Graphics {
 
         bool HasLinearTilingFeatures(Kernel &kernel) const;
 
-        static int32_t
+        vk::DeviceSize
         BindImageMemory(Kernel &kernel, vk::UniqueDeviceMemory &memory, vk::Image image,
                         vk::MemoryPropertyFlags properties);
 

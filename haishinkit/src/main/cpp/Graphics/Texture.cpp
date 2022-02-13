@@ -128,7 +128,7 @@ void Texture::SetImageOrientation(ImageOrientation newImageOrientation) {
 void Texture::SetUp(Kernel &kernel) {
     mode = HasLinearTilingFeatures(kernel) ? Mode::Linear : Mode::Stage;
 
-    image.SetUp(kernel, image.CreateImageCreateInfo()
+    auto imageCreateInfo = image.CreateImageCreateInfo()
             .setInitialLayout(
                     mode == Linear ?
                     vk::ImageLayout::ePreinitialized :
@@ -142,8 +142,11 @@ void Texture::SetUp(Kernel &kernel) {
             .setTiling(
                     mode == Linear ?
                     vk::ImageTiling::eLinear :
-                    vk::ImageTiling::eOptimal)
-    );
+                    vk::ImageTiling::eOptimal);
+    if (1 < colorSpace->GetPlaneCount()) {
+        imageCreateInfo.setFlags(vk::ImageCreateFlagBits::eDisjoint);
+    }
+    image.SetUp(kernel, imageCreateInfo);
 
     colorSpace->size = BindImageMemory(kernel, image.memory, image.image.get(),
                                        mode == Linear ? vk::MemoryPropertyFlagBits::eHostVisible
@@ -152,12 +155,16 @@ void Texture::SetUp(Kernel &kernel) {
     switch (mode) {
         case Linear: {
             LOGI("%s", "This device has a linear tiling feature.");
+            auto aspectMask = vk::ImageAspectFlagBits::eColor;
+            if (1 < colorSpace->GetPlaneCount()) {
+                aspectMask = vk::ImageAspectFlagBits::ePlane1;
+            }
             colorSpace->layout = kernel.device->getImageSubresourceLayout(
                     image.image.get(),
                     vk::ImageSubresource()
                             .setMipLevel(0)
                             .setArrayLayer(0)
-                            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                            .setAspectMask(aspectMask)
             );
             auto commandBuffer = kernel.commandBuffer.Allocate(kernel);
             commandBuffer.begin(vk::CommandBufferBeginInfo());
@@ -259,21 +266,68 @@ bool Texture::HasLinearTilingFeatures(Kernel &kernel) const {
     return false;
 }
 
-int32_t
+vk::DeviceSize
 Texture::BindImageMemory(Kernel &kernel, vk::UniqueDeviceMemory &memory, vk::Image image,
                          vk::MemoryPropertyFlags properties) {
-    const auto requirements = kernel.device->getImageMemoryRequirements(image);
-    memory = kernel.device->allocateMemoryUnique(
-            vk::MemoryAllocateInfo()
-                    .setAllocationSize(requirements.size)
-                    .setMemoryTypeIndex(
-                            kernel.FindMemoryType(
-                                    requirements.memoryTypeBits,
-                                    properties
-                            ))
-    );
-    kernel.device->bindImageMemory(image, memory.get(), 0);
-    return requirements.size;
+    if (1 < colorSpace->GetPlaneCount()) {
+        vk::DeviceSize size = 0;
+        uint32_t memoryTypeBits = 0;
+        std::vector<vk::ImageAspectFlagBits> imageAspects = {
+                vk::ImageAspectFlagBits::ePlane0,
+                vk::ImageAspectFlagBits::ePlane1
+        };
+
+        std::vector<vk::BindImageMemoryInfo> bindImageMemoryInfos;
+        for (const auto imageAspect : imageAspects) {
+            const auto imageMemoryRequirements2 = kernel.device->getImageMemoryRequirements2(
+                    vk::ImageMemoryRequirementsInfo2()
+                            .setImage(image)
+                            .setPNext(&vk::ImagePlaneMemoryRequirementsInfo().setPlaneAspect(
+                                    imageAspect)));
+
+            bindImageMemoryInfos.push_back(
+                    vk::BindImageMemoryInfo()
+                            .setPNext(
+                                    &vk::BindImagePlaneMemoryInfo().setPlaneAspect(
+                                            imageAspect))
+                            .setImage(image)
+                            .setMemory(memory.get())
+                            .setMemoryOffset(size)
+            );
+            size += imageMemoryRequirements2.memoryRequirements.size;
+            memoryTypeBits |= imageMemoryRequirements2.memoryRequirements.memoryTypeBits;
+        }
+
+        memory = kernel.device->allocateMemoryUnique(
+                vk::MemoryAllocateInfo()
+                        .setAllocationSize(size)
+                        .setMemoryTypeIndex(
+                                kernel.FindMemoryType(
+                                        memoryTypeBits,
+                                        properties
+                                ))
+        );
+
+        for (auto &bindImageMemoryInfo: bindImageMemoryInfos) {
+            bindImageMemoryInfo.setMemory(memory.get());
+        }
+
+        kernel.device->bindImageMemory2(bindImageMemoryInfos);
+        return size;
+    } else {
+        const auto requirements = kernel.device->getImageMemoryRequirements(image);
+        memory = kernel.device->allocateMemoryUnique(
+                vk::MemoryAllocateInfo()
+                        .setAllocationSize(requirements.size)
+                        .setMemoryTypeIndex(
+                                kernel.FindMemoryType(
+                                        requirements.memoryTypeBits,
+                                        properties
+                                ))
+        );
+        kernel.device->bindImageMemory(image, memory.get(), 0);
+        return requirements.size;
+    }
 }
 
 void Texture::CopyImage(Kernel &kernel) {
