@@ -7,6 +7,19 @@ using namespace Graphics;
 void ImageStorage::SetUp(Kernel &kernel, vk::ImageCreateInfo info) {
     layout = info.initialLayout;
     image = kernel.device->createImageUnique(info);
+
+    AHardwareBuffer_Desc desc{
+            .width = info.extent.width,
+            .height = info.extent.height,
+            .layers = info.arrayLayers,
+            .format = AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420,
+            .usage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE |
+                     AHARDWAREBUFFER_USAGE_CPU_WRITE_MASK |
+                     AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER,
+            .stride = 0,
+    };
+
+    AHardwareBuffer_allocate(&desc, &buffer);
 }
 
 void ImageStorage::TearDown(Kernel &kernel) {

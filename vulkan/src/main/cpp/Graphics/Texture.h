@@ -37,14 +37,13 @@ namespace Graphics {
 
         void TearDown(Kernel &kernel);
 
-        void Update(Kernel &kernel, void *y, void *u, void *v, int32_t yStride, int32_t uvStride,
-                    int32_t uvPixelStride);
-
         vk::Viewport GetViewport(Kernel &kernel) const;
 
         PushConstants GetPushConstants(Kernel &kernel) const;
 
         vk::DescriptorImageInfo CreateDescriptorImageInfo();
+
+        void Update(Kernel &kernel, AHardwareBuffer *buffer);
 
     private:
         Mode mode = Mode::Linear;

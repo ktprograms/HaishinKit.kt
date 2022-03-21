@@ -14,6 +14,7 @@ namespace Graphics {
         vk::UniqueDeviceMemory memory;
         vk::ImageLayout layout = vk::ImageLayout::ePreinitialized;
         vk::Extent2D extent = vk::Extent2D(0, 0);
+        AHardwareBuffer *buffer = nullptr;
 
         void SetUp(Kernel &kernel, vk::ImageCreateInfo info);
 

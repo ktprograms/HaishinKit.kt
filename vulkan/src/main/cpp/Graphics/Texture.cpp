@@ -3,6 +3,8 @@
 #include "Util.h"
 #include "ImageStorage.h"
 #include "ColorSpace.h"
+#include <sys/socket.h>
+#include <unistd.h>
 #include <glm/ext/matrix_transform.hpp>
 
 using namespace Graphics;
@@ -145,10 +147,15 @@ void Texture::SetImageOrientation(ImageOrientation newImageOrientation) {
 void Texture::SetUp(Kernel &kernel) {
     mode = HasLinearTilingFeatures(kernel) ? Mode::Linear : Mode::Stage;
 
+    vk::ExternalMemoryImageCreateInfo externalMemoryImageCreateInfo = vk::ExternalMemoryImageCreateInfo()
+            .setHandleTypes(vk::ExternalMemoryHandleTypeFlagBits::eAndroidHardwareBufferANDROID)
+            .setPNext(
+                    &vk::ExternalFormatANDROID()
+                            .setExternalFormat(0)
+            );
+
     image.SetUp(kernel, image.CreateImageCreateInfo()
             .setInitialLayout(
-                    mode == Linear ?
-                    vk::ImageLayout::ePreinitialized :
                     vk::ImageLayout::eUndefined
             )
             .setUsage(
@@ -160,6 +167,7 @@ void Texture::SetUp(Kernel &kernel) {
                     mode == Linear ?
                     vk::ImageTiling::eLinear :
                     vk::ImageTiling::eOptimal)
+            .setPNext(&externalMemoryImageCreateInfo)
     );
 
     switch (mode) {
@@ -206,17 +214,16 @@ void Texture::SetUp(Kernel &kernel) {
             vk::SamplerCreateInfo()
                     .setMagFilter(filter)
                     .setMinFilter(filter)
-                    .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-                    .setAddressModeV(vk::SamplerAddressMode::eRepeat)
-                    .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+                    .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+                    .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+                    .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
                     .setMipLodBias(0.0f)
                     .setMaxAnisotropy(1)
                     .setCompareOp(vk::CompareOp::eNever)
                     .setMinLod(0.0f)
                     .setMaxLod(0.0f)
                     .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-                    .setUnnormalizedCoordinates(false)
-    );
+                    .setUnnormalizedCoordinates(false));
 
     imageView = kernel.CreateImageView(image.image.get(), image.format);
 }
@@ -224,19 +231,16 @@ void Texture::SetUp(Kernel &kernel) {
 void Texture::TearDown(Kernel &kernel) {
 }
 
-void
-Texture::Update(Kernel &kernel, void *y, void *u, void *v, int32_t yStride, int32_t uvStride,
-                int32_t uvPixelStride) {
-    if (colorSpace->Map(y, u, v, yStride, uvStride, uvPixelStride)) {
-        CopyImage(kernel);
-    }
-}
-
 vk::DescriptorImageInfo Texture::CreateDescriptorImageInfo() {
     return vk::DescriptorImageInfo()
             .setImageLayout(image.layout)
             .setSampler(sampler.get())
             .setImageView(imageView.get());
+}
+
+void Texture::Update(Kernel &kernel, AHardwareBuffer *buffer) {
+    image.buffer = buffer;
+    colorSpace->Bind(kernel, image, vk::MemoryPropertyFlagBits::eDeviceLocal);
 }
 
 bool Texture::HasLinearTilingFeatures(Kernel &kernel) const {

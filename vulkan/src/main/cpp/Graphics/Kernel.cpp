@@ -222,7 +222,7 @@ vk::UniqueImageView Kernel::CreateImageView(vk::Image image, vk::Format format) 
 uint32_t
 Kernel::FindMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const {
     auto memoryProperties = physicalDevice.getMemoryProperties();
-    for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
+    for (uint32_t i = 0; i < VK_MAX_MEMORY_TYPES; ++i) {
         if ((typeFilter & (1 << i)) &&
             (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
             return i;
